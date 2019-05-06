@@ -22,8 +22,9 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include <time.h>
 #include <omp.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 double compute_using_omp (float, float, int, float, int);
 double compute_gold (float, float, int, float);
@@ -31,6 +32,7 @@ double compute_gold (float, float, int, float);
 int 
 main (int argc, char **argv) 
 {
+    struct timeval start, stop;	
     if (argc < 5) {
         printf ("Usage: trap lower-limit upper-limit num-trapezoids num-threads\n");
         printf ("lower-limit: The lower limit for the integral\n");
@@ -46,14 +48,23 @@ main (int argc, char **argv)
 
 	float h = (b - a)/(float) n; /* Base of each trapezoid. */  
 	printf ("The base of the trapezoid is %f \n", h);
-
+	
+        	
+        gettimeofday (&start, NULL);
 	double reference = compute_gold (a, b, n, h);
-    printf ("Reference solution computed using single-threaded version = %f \n", reference);
+	gettimeofday (&stop, NULL);
+	printf ("Execution time for compute gold= %fs\n", (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec)/(float)1000000));
+	printf ("Reference solution computed using single-threaded version = %f \n", reference);
+	printf ("\n");
 
 	/* Write this function to complete the trapezoidal rule using omp. */
-    int num_threads = atoi (argv[4]); /* Number of threads. */
+	int num_threads = atoi (argv[4]); /* Number of threads. */
+	gettimeofday (&start, NULL);
 	double omp_result = compute_using_omp (a, b, n, h, num_threads);
+	gettimeofday (&stop, NULL);
+        printf ("Execution time for OMP= %fs\n", (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec)/(float)1000000));
 	printf ("Solution computed using %d threads = %f \n", num_threads, omp_result);
+	printf ("\n");
 
     exit(EXIT_SUCCESS);
 } 
@@ -99,19 +110,30 @@ double
 compute_using_omp (float a, float b, int n, float h, int num_threads)
 {
     double integral = 0.0;
-    double partialintegral;
-    int i,j;
+    int i;
+    double partialint[num_threads-1];
+    for (i = 0; i < num_threads; i++)
+           partialint[i] = 0.0;
+
     
     integral = (f(a) + f(b))/2.0;
-    omp_set_num_threads(num_threads);
-    #pragma omp parallel for default(none) shared(a, b, n, h, integral) private(i,j,partialintegral)
-    for (j = 0; j < num_threads; j++){
-	    partialintegral = 0;
+    #pragma omp parallel num_threads(num_threads) shared(a, b, n, h,num_threads, integral) private(i,partialint)
+       {
+    
+
+        #pragma omp for
 	    for (i = 1; i  < n; i++){
-		partialintegral += f(a+i*h);
+	    int tid = omp_get_thread_num ();
+		partialint[tid] += f(a+i*h);
+	    } 
+# pragma omp critical 
+          for (i = 0; i < num_threads; i++)	    
+	    integral += partialint[i];
+
+      
 	    }
-	    integral += partialintegral;
-    }
+    
+	    
     integral = integral*h;
     return integral;
 }
